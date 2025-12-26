@@ -348,7 +348,7 @@ func startupSequence() {
 	pluginFolder := *path_plugin
 	pluginFolder = strings.TrimSuffix(pluginFolder, "/")
 	ZoraxyAddrPort, err := netip.ParseAddrPort(*webUIPort)
-	ZoraxyPort := 8000
+	ZoraxyPort := 8443
 	if err == nil && ZoraxyAddrPort.IsValid() && ZoraxyAddrPort.Port() > 0 {
 		ZoraxyPort = int(ZoraxyAddrPort.Port())
 	}

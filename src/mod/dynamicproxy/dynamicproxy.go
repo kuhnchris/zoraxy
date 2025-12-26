@@ -31,8 +31,8 @@ func NewDynamicProxy(option RouterOption) (*Router, error) {
 		loadBalancer:        option.LoadBalancer,
 		rateLimitCounter:    RequestCountPerIpTable{},
 		captchaSessionStore: NewCaptchaSessionStore(),
-		secondaryServers:   make(map[string]*http.Server),
-		secondaryStopChans: make(map[string]chan bool),
+		secondaryServers:    make(map[string]*http.Server),
+		secondaryStopChans:  make(map[string]chan bool),
 	}
 
 	thisRouter.mux = &ProxyHandler{
@@ -107,7 +107,7 @@ func (router *Router) StartProxyService() error {
 		if router.Option.Port != 80 && router.Option.ListenOnPort80 {
 			//Add a 80 to 443 redirector
 			httpServer := &http.Server{
-				Addr: ":80",
+				Addr: ":81",
 				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					//Check if the domain requesting allow non TLS mode
 					domainOnly := r.Host
