@@ -70,7 +70,7 @@ func checkAllUpstreams() {
 
 		//jdec := json.NewDecoder(resp.Body)
 		// Unmarshal into a map for dynamic handling
-		var data []map[string]interface{}
+		//var data []map[string]interface{}
 
 		retResp, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -78,9 +78,17 @@ func checkAllUpstreams() {
 			continue
 
 		}
-		err = json.Unmarshal(retResp, &data)
+		/*
+			err = json.Unmarshal(retResp, &data)
+			if err != nil {
+				fmt.Printf("Error unmarshalling JSON: %v", err)
+				continue
+			}*/
+
+		var pConfigs ProxyConfigs
+		err = json.Unmarshal(retResp, &pConfigs)
 		if err != nil {
-			fmt.Printf("Error unmarshalling JSON: %v", err)
+			fmt.Printf("cannot unmarshal proxy config: %s\n", err)
 			continue
 		}
 
@@ -88,17 +96,17 @@ func checkAllUpstreams() {
 		/*for key, value := range data {
 			fmt.Printf("Key: %s, Value: %v\n", key, value)
 		}*/
-		for idx, entry := range data {
-			resp, err := callAPIEndpoint(&pluginCfg, "api/proxy/upstream/list?ep="+string(entry["RootOrMatchingDomain"]))
+		for _, entry := range pConfigs {
+			resp, err := callAPIEndpoint(&pluginCfg, "api/proxy/upstream/list?ep="+*entry.RootOrMatchingDomain)
 			if err != nil {
 				fmt.Printf("error: %s", err)
 				//panic(err)
 				continue
 			}
+			fmt.Printf("Upstream reply: %s", resp)
 
 			//entry["RootOrMatchingDomain"]
 		}
-		fmt.Printf("Received API endpoint reply: %s\n", resp)
 	}
 }
 
