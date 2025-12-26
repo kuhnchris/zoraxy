@@ -93,3 +93,13 @@ type AuthenticationProvider struct {
 
 	ExtraFields map[string]json.RawMessage `json:"-"`
 }
+
+// ProxyUpstream represents the whole JSON payload you posted.
+// It can hold any additional fields that are not explicitly declared.
+type ProxyUpstream struct {
+	ActiveOrigins   []Origin `json:"ActiveOrigins,omitempty"`
+	InactiveOrigins []Origin `json:"InactiveOrigins,omitempty"`
+
+	// Any extra keys present in the source JSON will be stored here
+	ExtraFields map[string]json.RawMessage `json:"-"`
+}

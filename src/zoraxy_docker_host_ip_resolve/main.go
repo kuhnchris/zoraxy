@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	_ "embed"
 	"encoding/json"
@@ -9,9 +10,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strconv"
+	"strings"
 	"time"
 
 	plugin "github.com/kuhnchris/zoraxy_docker_host_ip_resolve/mod/zoraxy_plugin"
+	"github.com/moby/moby/client"
 )
 
 const (
@@ -58,12 +61,34 @@ func callAPIEndpoint(cfg *plugin.ConfigureSpec, apiURL string) (*http.Response, 
 }
 
 func checkAllUpstreams() {
+
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		panic(err)
+	}
+
 	for {
 		time.Sleep(5 * time.Second)
+		fmt.Printf("Fetching docker containers...\n")
+		containerList, err := dockerCli.ContainerList(context.Background(), client.ContainerListOptions{All: false})
+		if err != nil {
+			fmt.Printf("error fetching docker container(s): %s\n", err)
+			continue
+		}
+		/*
+			for _, c := range containerList.Items {
+				fmt.Printf("Container %s (also called %s):\n---\nNetworks:\n", c.Names[0], strings.Join(c.Names, ","))
+				for nName, n := range c.NetworkSettings.Networks {
+					fmt.Printf("| Network %s (%s)\n| IP: %s\n| DNS names: %s\n", nName, n.NetworkID, n.IPAddress, strings.Join(n.DNSNames, ","))
+				}
+
+				fmt.Printf("---\n")
+			}*/
+
 		fmt.Printf("Calling endpoint...\n")
 		resp, err := callAPIEndpoint(&pluginCfg, "api/proxy/list?type=host")
 		if err != nil {
-			fmt.Printf("error: %s", err)
+			fmt.Printf("error: %s\n", err)
 			//panic(err)
 			continue
 		}
@@ -74,7 +99,7 @@ func checkAllUpstreams() {
 
 		retResp, err := io.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Printf("Error unmarshalling JSON: %v", err)
+			fmt.Printf("Error unmarshalling JSON: %v\n", err)
 			continue
 
 		}
@@ -97,14 +122,67 @@ func checkAllUpstreams() {
 			fmt.Printf("Key: %s, Value: %v\n", key, value)
 		}*/
 		for _, entry := range pConfigs {
+			fmt.Printf("Checking upstreams for %s...\n", *entry.RootOrMatchingDomain)
 			resp, err := callAPIEndpoint(&pluginCfg, "api/proxy/upstream/list?ep="+*entry.RootOrMatchingDomain)
 			if err != nil {
-				fmt.Printf("error: %s", err)
+				fmt.Printf("error: %s\n", err)
 				//panic(err)
 				continue
 			}
-			fmt.Printf("Upstream reply: %s", resp)
 
+			retResp, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Printf("Error unmarshalling JSON: %v\n", err)
+				continue
+
+			}
+			//fmt.Printf("Upstream reply: %s\n", resp)
+			var puConfigs ProxyUpstream
+			err = json.Unmarshal(retResp, &puConfigs)
+
+			if err != nil {
+				fmt.Printf("cannot unmarshal proxy upstreams: %s\n", err)
+				continue
+			}
+
+			for _, ao := range puConfigs.ActiveOrigins {
+				hostPort := strings.Split(*ao.OriginIpOrDomain, ":")
+				for _, c := range containerList.Items {
+					spl, found := strings.CutPrefix(c.Names[0], "/")
+					if !found {
+						continue
+					}
+
+					if spl == hostPort[0] {
+						for _, n := range c.NetworkSettings.Networks {
+							newOrigin := strings.Join([]string{n.IPAddress.String(), hostPort[1]}, ":")
+							var originIsReallyNew bool = true
+							for _, ao2 := range puConfigs.ActiveOrigins {
+								if strings.Compare(*ao2.OriginIpOrDomain, newOrigin) == 0 {
+									originIsReallyNew = false
+								}
+							}
+							if originIsReallyNew {
+								fmt.Printf("Found %s, would map %s to %s -> %s.\n", *ao.OriginIpOrDomain, hostPort[0], n.IPAddress, newOrigin)
+								resp, err := callAPIEndpoint(&pluginCfg, "api/proxy/upstream/add?ep="+*entry.RootOrMatchingDomain+"&origin="+newOrigin+"&active=true")
+								if err != nil {
+									fmt.Printf("cannot add new proxy upstream: %s\n", err)
+									continue
+								}
+								retResp, err := io.ReadAll(resp.Body)
+
+								if strings.Compare(string(retResp), "OK") != 0 {
+									fmt.Printf("adding upstream proxy returned non-OK value: %s\n", retResp)
+								} else {
+									fmt.Printf("successfully added new mapping.")
+								}
+
+							}
+
+						}
+					}
+				}
+			}
 			//entry["RootOrMatchingDomain"]
 		}
 	}
@@ -118,7 +196,7 @@ func main() {
 		Name:          "Docker Hostname-to-IP resolver",
 		Author:        "KuhnChris",
 		AuthorContact: "kuhnchris@users.github.com",
-		Description:   "A plugin that tries to resolve the given hostname to a docker currently running docker container IP",
+		Description:   "A plugin that tries to resolve the given hostname to a currently running docker container's IP",
 		URL:           "https://github.com/kuhnchris",
 		Type:          plugin.PluginType_Utilities,
 		VersionMajor:  1,
@@ -132,6 +210,14 @@ func main() {
 				Method:   http.MethodGet,
 				Endpoint: "/plugin/api/proxy/list",
 				Reason:   "Used to display all configured Access Rules",
+			}, {
+				Method:   http.MethodGet,
+				Endpoint: "/plugin/api/proxy/upstream/list",
+				Reason:   "Used to display all upstreams to check against docker hostname(s)",
+			}, {
+				Method:   http.MethodGet,
+				Endpoint: "/plugin/api/proxy/upstream/add",
+				Reason:   "Add upstream",
 			},
 		},
 	})
@@ -139,6 +225,7 @@ func main() {
 		//Terminate or enter standalone mode here
 		panic(err)
 	}
+
 	pluginCfg = *runtimeCfg
 
 	embedWebRouter := plugin.NewPluginEmbedUIRouter(PLUGIN_ID, &content, WEB_ROOT, UI_PATH)
